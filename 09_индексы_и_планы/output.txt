@@ -1,0 +1,367 @@
+DROP INDEX IF EXISTS ix_year_type, ix_title, ix_title_pattern, ix_title_hash, ix_title_fts;
+psql:02_indexes.sql:12: NOTICE:  index "ix_year_type" does not exist, skipping
+psql:02_indexes.sql:12: NOTICE:  index "ix_title" does not exist, skipping
+psql:02_indexes.sql:12: NOTICE:  index "ix_title_pattern" does not exist, skipping
+psql:02_indexes.sql:12: NOTICE:  index "ix_title_hash" does not exist, skipping
+psql:02_indexes.sql:12: NOTICE:  index "ix_title_fts" does not exist, skipping
+DROP INDEX
+SELECT datcollate FROM pg_database WHERE datname = current_database();
+ datcollate 
+------------
+ en_US.utf8
+(1 row)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts WHERE checkoutyear = 2019 AND materialtype = 'BOOK';
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=25898.77..25898.78 rows=1 width=8) (actual time=16.300..17.784 rows=1 loops=1)
+   Buffers: shared hit=2400 read=16224
+   ->  Gather  (cost=25898.56..25898.76 rows=2 width=8) (actual time=16.257..17.781 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=2400 read=16224
+         ->  Partial Aggregate  (cost=24898.56..24898.56 rows=1 width=8) (actual time=14.783..14.783 rows=1 loops=3)
+               Buffers: shared hit=2400 read=16224
+               ->  Parallel Seq Scan on big_checkouts  (cost=0.00..24874.00 rows=9822 width=4) (actual time=9.839..14.501 rows=7857 loops=3)
+                     Filter: ((checkoutyear = 2019) AND ((materialtype)::text = 'BOOK'::text))
+                     Rows Removed by Filter: 325477
+                     Buffers: shared hit=2400 read=16224
+ Planning:
+   Buffers: shared hit=31 read=1
+ Planning Time: 0.082 ms
+ Execution Time: 17.821 ms
+(16 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title = 'Spinning silver / Naomi Novik.';
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..24852.23 rows=199 width=117) (actual time=0.267..18.420 rows=200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=2496 read=16128
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=83 width=117) (actual time=0.128..15.823 rows=67 loops=3)
+         Filter: (title = 'Spinning silver / Naomi Novik.'::text)
+         Rows Removed by Filter: 333267
+         Buffers: shared hit=2496 read=16128
+ Planning:
+   Buffers: shared hit=46
+ Planning Time: 0.108 ms
+ Execution Time: 18.433 ms
+(12 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title LIKE 'Spinning%';
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..24842.23 rows=99 width=117) (actual time=0.308..19.753 rows=200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=2592 read=16032
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=41 width=117) (actual time=0.277..17.221 rows=67 loops=3)
+         Filter: (title ~~ 'Spinning%'::text)
+         Rows Removed by Filter: 333267
+         Buffers: shared hit=2592 read=16032
+ Planning Time: 0.035 ms
+ Execution Time: 19.766 ms
+(10 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title ILIKE '%' || 'war' || '%';
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..27884.33 rows=30520 width=117) (actual time=0.113..177.518 rows=38200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=2688 read=15936
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=12717 width=117) (actual time=0.067..174.249 rows=12733 loops=3)
+         Filter: (title ~~* '%war%'::text)
+         Rows Removed by Filter: 320600
+         Buffers: shared hit=2688 read=15936
+ Planning Time: 0.116 ms
+ Execution Time: 178.370 ms
+(10 rows)
+
+CREATE INDEX ix_year_type ON big_checkouts (checkoutyear, materialtype);
+CREATE INDEX
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts WHERE checkoutyear = 2019 AND materialtype = 'BOOK';
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=20353.62..20353.63 rows=1 width=8) (actual time=6.592..6.592 rows=1 loops=1)
+   Buffers: shared read=954
+   ->  Bitmap Heap Scan on big_checkouts  (cost=326.04..20294.69 rows=23572 width=4) (actual time=0.532..5.515 rows=23570 loops=1)
+         Recheck Cond: ((checkoutyear = 2019) AND ((materialtype)::text = 'BOOK'::text))
+         Heap Blocks: exact=931
+         Buffers: shared read=954
+         ->  Bitmap Index Scan on ix_year_type  (cost=0.00..320.15 rows=23572 width=0) (actual time=0.444..0.444 rows=23570 loops=1)
+               Index Cond: ((checkoutyear = 2019) AND ((materialtype)::text = 'BOOK'::text))
+               Buffers: shared read=23
+ Planning:
+   Buffers: shared hit=21 read=1
+ Planning Time: 0.099 ms
+ Execution Time: 6.611 ms
+(13 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts WHERE materialtype = 'BOOK';
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=25321.02..25321.03 rows=1 width=8) (actual time=26.087..27.676 rows=1 loops=1)
+   Buffers: shared hit=3779 read=14845
+   ->  Gather  (cost=25320.81..25321.02 rows=2 width=8) (actual time=26.048..27.673 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=3779 read=14845
+         ->  Partial Aggregate  (cost=24320.81..24320.82 rows=1 width=8) (actual time=24.616..24.616 rows=1 loops=3)
+               Buffers: shared hit=3779 read=14845
+               ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=195389 width=4) (actual time=0.012..18.652 rows=157133 loops=3)
+                     Filter: ((materialtype)::text = 'BOOK'::text)
+                     Rows Removed by Filter: 176200
+                     Buffers: shared hit=3779 read=14845
+ Planning Time: 0.029 ms
+ Execution Time: 27.686 ms
+(14 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts WHERE checkoutyear = 2019;
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=19944.00..19944.01 rows=1 width=8) (actual time=4.965..4.965 rows=1 loops=1)
+   Buffers: shared hit=954 read=23
+   ->  Bitmap Heap Scan on big_checkouts  (cost=565.99..19818.33 rows=50267 width=4) (actual time=0.633..3.020 rows=50000 loops=1)
+         Recheck Cond: (checkoutyear = 2019)
+         Heap Blocks: exact=931
+         Buffers: shared hit=954 read=23
+         ->  Bitmap Index Scan on ix_year_type  (cost=0.00..553.43 rows=50267 width=0) (actual time=0.576..0.576 rows=50000 loops=1)
+               Index Cond: (checkoutyear = 2019)
+               Buffers: shared hit=23 read=23
+ Planning Time: 0.041 ms
+ Execution Time: 4.975 ms
+(11 rows)
+
+CREATE INDEX ix_title ON big_checkouts (title);
+CREATE INDEX
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title = 'Spinning silver / Naomi Novik.';
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on big_checkouts  (cost=5.97..739.21 rows=199 width=117) (actual time=0.034..0.688 rows=200 loops=1)
+   Recheck Cond: (title = 'Spinning silver / Naomi Novik.'::text)
+   Heap Blocks: exact=200
+   Buffers: shared hit=43 read=160
+   ->  Bitmap Index Scan on ix_title  (cost=0.00..5.92 rows=199 width=0) (actual time=0.019..0.019 rows=200 loops=1)
+         Index Cond: (title = 'Spinning silver / Naomi Novik.'::text)
+         Buffers: shared read=3
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.119 ms
+ Execution Time: 0.704 ms
+(11 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title LIKE 'Spinning%';
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..24842.23 rows=99 width=117) (actual time=0.338..20.999 rows=200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=4096 read=14528
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=41 width=117) (actual time=0.223..17.900 rows=67 loops=3)
+         Filter: (title ~~ 'Spinning%'::text)
+         Rows Removed by Filter: 333267
+         Buffers: shared hit=4096 read=14528
+ Planning:
+   Buffers: shared hit=2 read=4
+ Planning Time: 0.070 ms
+ Execution Time: 21.011 ms
+(12 rows)
+
+CREATE INDEX ix_title_pattern ON big_checkouts (title text_pattern_ops);
+CREATE INDEX
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title LIKE 'Spinning%';
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using ix_title_pattern on big_checkouts  (cost=0.42..8.45 rows=99 width=117) (actual time=0.017..0.122 rows=200 loops=1)
+   Index Cond: ((title ~>=~ 'Spinning'::text) AND (title ~<~ 'Spinninh'::text))
+   Filter: (title ~~ 'Spinning%'::text)
+   Buffers: shared hit=200 read=3
+ Planning:
+   Buffers: shared hit=52 read=2
+ Planning Time: 0.168 ms
+ Execution Time: 0.136 ms
+(8 rows)
+
+CREATE TEMP TABLE idx_sizes AS
+SELECT indexrelid::regclass::text AS index_name, pg_relation_size(indexrelid) AS bytes
+FROM pg_index WHERE indexrelid IN ('ix_title'::regclass, 'ix_title_pattern'::regclass);
+SELECT 2
+DROP INDEX ix_title, ix_title_pattern;
+DROP INDEX
+CREATE INDEX ix_title_hash ON big_checkouts USING hash (title);
+CREATE INDEX
+INSERT INTO idx_sizes VALUES ('ix_title_hash', pg_relation_size('ix_title_hash'));
+INSERT 0 1
+SELECT index_name, pg_size_pretty(bytes) AS size FROM idx_sizes ORDER BY bytes DESC;
+    index_name    |  size   
+------------------+---------
+ ix_title_hash    | 34 MB
+ ix_title         | 8048 kB
+ ix_title_pattern | 8040 kB
+(3 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title = 'Spinning silver / Naomi Novik.';
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on big_checkouts  (cost=5.54..738.78 rows=199 width=117) (actual time=0.026..0.154 rows=200 loops=1)
+   Recheck Cond: (title = 'Spinning silver / Naomi Novik.'::text)
+   Heap Blocks: exact=200
+   Buffers: shared hit=202
+   ->  Bitmap Index Scan on ix_title_hash  (cost=0.00..5.49 rows=199 width=0) (actual time=0.011..0.011 rows=200 loops=1)
+         Index Cond: (title = 'Spinning silver / Naomi Novik.'::text)
+         Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.041 ms
+ Execution Time: 0.165 ms
+(11 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title LIKE 'Spinning%';
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..24842.23 rows=99 width=117) (actual time=0.324..20.977 rows=200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=4288 read=14336
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=41 width=117) (actual time=0.327..17.874 rows=67 loops=3)
+         Filter: (title ~~ 'Spinning%'::text)
+         Rows Removed by Filter: 333267
+         Buffers: shared hit=4288 read=14336
+ Planning:
+   Buffers: shared hit=2
+ Planning Time: 0.035 ms
+ Execution Time: 20.989 ms
+(12 rows)
+
+DROP INDEX ix_title_hash;
+DROP INDEX
+CREATE INDEX ix_title_fts ON big_checkouts USING gin (to_tsvector('english', title));
+CREATE INDEX
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE title ILIKE '%' || 'war' || '%';
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..27884.33 rows=30520 width=117) (actual time=0.131..178.282 rows=38200 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=4416 read=14208
+   ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23832.33 rows=12717 width=117) (actual time=0.078..174.140 rows=12733 loops=3)
+         Filter: (title ~~* '%war%'::text)
+         Rows Removed by Filter: 320600
+         Buffers: shared hit=4416 read=14208
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.144 ms
+ Execution Time: 179.146 ms
+(12 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM big_checkouts WHERE to_tsvector('english', title) @@ to_tsquery('english', 'war');
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on big_checkouts  (cost=47.45..12560.26 rows=5000 width=117) (actual time=1.262..21.659 rows=10000 loops=1)
+   Recheck Cond: (to_tsvector('english'::regconfig, title) @@ '''war'''::tsquery)
+   Heap Blocks: exact=7821
+   Buffers: shared hit=1886 read=5943
+   ->  Bitmap Index Scan on ix_title_fts  (cost=0.00..46.20 rows=5000 width=0) (actual time=0.706..0.707 rows=10000 loops=1)
+         Index Cond: (to_tsvector('english'::regconfig, title) @@ '''war'''::tsquery)
+         Buffers: shared hit=8
+ Planning:
+   Buffers: shared hit=8 read=1
+ Planning Time: 0.092 ms
+ Execution Time: 21.977 ms
+(11 rows)
+
+SELECT COUNT(*) FILTER (WHERE title ILIKE '%' || 'war' || '%')                                AS ilike_rows,
+       COUNT(*) FILTER (WHERE to_tsvector('english', title) @@ to_tsquery('english', 'war'))  AS fts_rows
+FROM big_checkouts;
+ ilike_rows | fts_rows 
+------------+----------
+      38200 |    10000
+(1 row)
+
+SELECT DISTINCT title AS only_ilike FROM raw_checkouts
+WHERE title ILIKE '%' || 'war' || '%' AND NOT to_tsvector('english', title) @@ to_tsquery('english', 'war')
+ORDER BY 1 LIMIT 8;
+                                                                                          only_ilike                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 42nd street / Warner Bros. Pictures, Inc. & the Vitaphone Corp. ; directed by Lloyd Bacon ; screen play by Rian James & James Seymour.
+ 7 weeks to a triathlon : the complete day-by-day program to train for your first race or improve your fastest time / Brett Stewart and Lewis Elliot.
+ Adventure time. 10, The Ooorient Express / created by Pendleton Ward ; written by Jeremy Sorese ; illustrated by Zachary Sterling ; colors by Laura Langston ; letters by Warren Montgomery.
+ Alone: D. D. Warren Series, Book 1
+ American pie 2 / Universal Pictures ; a Zide/Perry - Liveplanet production ; producers, Warren Zide, Craig Perry, Chris Moore ; screenplay writer, Adam Herz ; director, J.B. Rogers.
+ Another time, another place / Jennifer Warnes.
+ A perfect world / Warner Bros. Pictures ; a Malpaso production ; produced by Mark Johnson and David Valdes ; directed by Clint Eastwood ; written by John Lee Hancock.
+ A Step Toward Falling
+(8 rows)
+
+SELECT DISTINCT title AS fts_matches FROM raw_checkouts
+WHERE to_tsvector('english', title) @@ to_tsquery('english', 'war')
+ORDER BY 1 LIMIT 8;
+                                                                                                                                       fts_matches                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ A higher call : an incredible true story of combat and chivalry in the war-torn skies of World War II / Adam Makos with Larry Alexander.
+ All-new X-Men. [Vol. 2], Apocalypse wars / Dennis Hopeless, writer ; Mark Bagley, penciler ; Andrew Hennessy, inker ; Nolan Woodard, colorist ; Paco Diaz, artist ; Rachelle Rosenberg, colorist ; VC's Cory Petit, letterer ; cover art, Mark Bagley, Andrew Hennessy & Nolan Woodard.
+ A pretext for war : 9/11, Iraq, and the abuse of America's intelligence agencies / James Bamford.
+ Articles of War (Unabridged)
+ Art of War
+ A treasury of Civil War songs / sung by Tom Glazer.
+ Civil War on Sunday: Magic Tree House Series, Book 21 (unabridged) (Unabridged)
+ Code Talker: A Novel About the Navajo Marines of World War Two
+(8 rows)
+
+CREATE TEMP TABLE ins_src AS SELECT * FROM big_checkouts LIMIT 100000;
+SELECT 100000
+DROP INDEX ix_year_type, ix_title_fts;
+DROP INDEX
+SELECT COUNT(*) AS indexes_now FROM pg_indexes WHERE tablename = 'big_checkouts';
+ indexes_now 
+-------------
+           0
+(1 row)
+
+BEGIN;
+BEGIN
+Timing is on.
+INSERT INTO big_checkouts SELECT * FROM ins_src;
+INSERT 0 100000
+Time: 62.199 ms
+Timing is off.
+ROLLBACK;
+ROLLBACK
+CREATE INDEX ix_year_type ON big_checkouts (checkoutyear, materialtype);
+CREATE INDEX
+CREATE INDEX ix_title     ON big_checkouts (title);
+CREATE INDEX
+CREATE INDEX ix_title_fts ON big_checkouts USING gin (to_tsvector('english', title));
+CREATE INDEX
+SELECT COUNT(*) AS indexes_now FROM pg_indexes WHERE tablename = 'big_checkouts';
+ indexes_now 
+-------------
+           3
+(1 row)
+
+BEGIN;
+BEGIN
+Timing is on.
+INSERT INTO big_checkouts SELECT * FROM ins_src;
+INSERT 0 100000
+Time: 1295.717 ms (00:01.296)
+Timing is off.
+ROLLBACK;
+ROLLBACK
+SELECT indexname, pg_size_pretty(pg_relation_size(indexname::regclass)) AS size, indexdef
+FROM pg_indexes WHERE tablename = 'big_checkouts' ORDER BY indexname;
+  indexname   |  size   |                                                indexdef                                                
+--------------+---------+--------------------------------------------------------------------------------------------------------
+ ix_title     | 9424 kB | CREATE INDEX ix_title ON public.big_checkouts USING btree (title)
+ ix_title_fts | 37 MB   | CREATE INDEX ix_title_fts ON public.big_checkouts USING gin (to_tsvector('english'::regconfig, title))
+ ix_year_type | 7752 kB | CREATE INDEX ix_year_type ON public.big_checkouts USING btree (checkoutyear, materialtype)
+(3 rows)
+
+SELECT pg_size_pretty(pg_relation_size('big_checkouts')) AS table_size;
+ table_size 
+------------
+ 174 MB
+(1 row)
+

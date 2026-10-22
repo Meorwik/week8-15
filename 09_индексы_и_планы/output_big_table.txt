@@ -1,0 +1,25 @@
+DROP TABLE IF EXISTS big_checkouts CASCADE;
+DROP TABLE
+CREATE TABLE big_checkouts AS
+SELECT row_number() OVER ()::bigint      AS id,     -- просто номер строки, БЕЗ первичного ключа: таблица без индексов
+       r.materialtype,
+       2005 + g % 20                     AS checkoutyear,
+       1 + floor(random() * 12)::int     AS checkoutmonth,
+       r.checkouts,
+       r.title,
+       r.creator
+FROM raw_checkouts r
+CROSS JOIN generate_series(0, 199) AS g
+ORDER BY checkoutyear, checkoutmonth;
+SELECT 1000000
+VACUUM ANALYZE big_checkouts;
+VACUUM
+SELECT COUNT(*) AS rows,
+       pg_size_pretty(pg_total_relation_size('big_checkouts')) AS size,
+       MIN(checkoutyear) AS min_year, MAX(checkoutyear) AS max_year
+FROM big_checkouts;
+  rows   |  size  | min_year | max_year 
+---------+--------+----------+----------
+ 1000000 | 146 MB |     2005 |     2024
+(1 row)
+
