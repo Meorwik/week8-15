@@ -1,0 +1,239 @@
+DROP TABLE IF EXISTS checkouts_part, checkouts_2005_2009 CASCADE;
+DROP TABLE
+CREATE TABLE checkouts_part (
+    id            bigint,
+    materialtype  varchar(50),
+    checkoutyear  int NOT NULL,
+    checkoutmonth int,
+    checkouts     int,
+    title         text,
+    creator       text
+) PARTITION BY RANGE (checkoutyear);
+CREATE TABLE
+CREATE TABLE checkouts_2005_2009 PARTITION OF checkouts_part FOR VALUES FROM (2005) TO (2010);
+CREATE TABLE
+CREATE TABLE checkouts_2010_2014 PARTITION OF checkouts_part FOR VALUES FROM (2010) TO (2015);
+CREATE TABLE
+CREATE TABLE checkouts_2015_2019 PARTITION OF checkouts_part FOR VALUES FROM (2015) TO (2020);
+CREATE TABLE
+CREATE TABLE checkouts_2020_2024 PARTITION OF checkouts_part FOR VALUES FROM (2020) TO (2025);
+CREATE TABLE
+INSERT INTO checkouts_part SELECT id, materialtype, checkoutyear, checkoutmonth, checkouts, title, creator FROM big_checkouts;
+INSERT 0 1000000
+ANALYZE checkouts_part;
+ANALYZE
+SELECT (SELECT COUNT(*) FROM big_checkouts) AS big_rows, (SELECT COUNT(*) FROM checkouts_part) AS part_rows;
+ big_rows | part_rows 
+----------+-----------
+  1000000 |   1000000
+(1 row)
+
+SELECT tableoid::regclass AS partition, COUNT(*) AS rows, MIN(checkoutyear), MAX(checkoutyear)
+FROM checkouts_part GROUP BY 1 ORDER BY 1;
+      partition      |  rows  | min  | max  
+---------------------+--------+------+------
+ checkouts_2005_2009 | 250000 | 2005 | 2009
+ checkouts_2010_2014 | 250000 | 2010 | 2014
+ checkouts_2015_2019 | 250000 | 2015 | 2019
+ checkouts_2020_2024 | 250000 | 2020 | 2024
+(4 rows)
+
+DROP INDEX IF EXISTS ix_year_type, ix_title, ix_title_pattern, ix_title_hash, ix_title_fts;
+psql:02_tasks.sql:7: NOTICE:  index "ix_year_type" does not exist, skipping
+psql:02_tasks.sql:7: NOTICE:  index "ix_title" does not exist, skipping
+psql:02_tasks.sql:7: NOTICE:  index "ix_title_pattern" does not exist, skipping
+psql:02_tasks.sql:7: NOTICE:  index "ix_title_hash" does not exist, skipping
+psql:02_tasks.sql:7: NOTICE:  index "ix_title_fts" does not exist, skipping
+DROP INDEX
+VACUUM ANALYZE big_checkouts;
+VACUUM
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts  WHERE checkoutyear = 2019;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=24861.19..24861.20 rows=1 width=8) (actual time=16.226..17.227 rows=1 loops=1)
+   Buffers: shared hit=254 read=18345 written=25
+   ->  Gather  (cost=24860.98..24861.19 rows=2 width=8) (actual time=16.200..17.225 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=254 read=18345 written=25
+         ->  Partial Aggregate  (cost=23860.98..23860.99 rows=1 width=8) (actual time=14.714..14.715 rows=1 loops=3)
+               Buffers: shared hit=254 read=18345 written=25
+               ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23807.33 rows=21458 width=4) (actual time=8.625..14.081 rows=16667 loops=3)
+                     Filter: (checkoutyear = 2019)
+                     Rows Removed by Filter: 316667
+                     Buffers: shared hit=254 read=18345 written=25
+ Planning:
+   Buffers: shared hit=20 read=3
+ Planning Time: 0.081 ms
+ Execution Time: 17.244 ms
+(16 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM checkouts_part WHERE checkoutyear = 2019;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=6983.05..6983.06 rows=1 width=8) (actual time=8.108..10.330 rows=1 loops=1)
+   Buffers: shared hit=4444 read=185 written=96
+   ->  Gather  (cost=6982.84..6983.05 rows=2 width=8) (actual time=8.073..10.328 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=4444 read=185 written=96
+         ->  Partial Aggregate  (cost=5982.84..5982.85 rows=1 width=8) (actual time=6.900..6.900 rows=1 loops=3)
+               Buffers: shared hit=4444 read=185 written=96
+               ->  Parallel Seq Scan on checkouts_2015_2019 checkouts_part  (cost=0.00..5931.08 rows=20701 width=4) (actual time=2.477..6.409 rows=16667 loops=3)
+                     Filter: (checkoutyear = 2019)
+                     Rows Removed by Filter: 66667
+                     Buffers: shared hit=4444 read=185 written=96
+ Planning:
+   Buffers: shared hit=48 read=6 written=6
+ Planning Time: 0.156 ms
+ Execution Time: 10.338 ms
+(16 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM big_checkouts  WHERE materialtype = 'BOOK';
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=25297.62..25297.63 rows=1 width=8) (actual time=25.685..26.658 rows=1 loops=1)
+   Buffers: shared hit=350 read=18249 written=96
+   ->  Gather  (cost=25297.40..25297.61 rows=2 width=8) (actual time=25.655..26.655 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=350 read=18249 written=96
+         ->  Partial Aggregate  (cost=24297.40..24297.41 rows=1 width=8) (actual time=24.424..24.424 rows=1 loops=3)
+               Buffers: shared hit=350 read=18249 written=96
+               ->  Parallel Seq Scan on big_checkouts  (cost=0.00..23807.33 rows=196028 width=4) (actual time=0.021..18.547 rows=157133 loops=3)
+                     Filter: ((materialtype)::text = 'BOOK'::text)
+                     Rows Removed by Filter: 176200
+                     Buffers: shared hit=350 read=18249 written=96
+ Planning:
+   Buffers: shared hit=13
+ Planning Time: 0.044 ms
+ Execution Time: 26.666 ms
+(16 rows)
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT SUM(checkouts) FROM checkouts_part WHERE materialtype = 'BOOK';
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=26198.27..26198.28 rows=1 width=8) (actual time=36.980..40.647 rows=1 loops=1)
+   Buffers: shared hit=15586 read=2928 written=148
+   ->  Gather  (cost=26198.06..26198.27 rows=2 width=8) (actual time=36.932..40.644 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=15586 read=2928 written=148
+         ->  Partial Aggregate  (cost=25198.06..25198.07 rows=1 width=8) (actual time=35.769..35.770 rows=1 loops=3)
+               Buffers: shared hit=15586 read=2928 written=148
+               ->  Parallel Append  (cost=0.00..24706.15 rows=196763 width=4) (actual time=0.008..30.944 rows=157133 loops=3)
+                     Buffers: shared hit=15586 read=2928 written=148
+                     ->  Parallel Seq Scan on checkouts_2010_2014 checkouts_part_2  (cost=0.00..5931.08 rows=48910 width=4) (actual time=0.008..18.363 rows=117850 loops=1)
+                           Filter: ((materialtype)::text = 'BOOK'::text)
+                           Rows Removed by Filter: 132150
+                           Buffers: shared hit=4552 read=77 written=32
+                     ->  Parallel Seq Scan on checkouts_2015_2019 checkouts_part_3  (cost=0.00..5931.08 rows=49062 width=4) (actual time=0.011..19.817 rows=117850 loops=1)
+                           Filter: ((materialtype)::text = 'BOOK'::text)
+                           Rows Removed by Filter: 132150
+                           Buffers: shared hit=4540 read=89 written=31
+                     ->  Parallel Seq Scan on checkouts_2005_2009 checkouts_part_1  (cost=0.00..5930.08 rows=49201 width=4) (actual time=0.042..6.004 rows=39283 loops=3)
+                           Filter: ((materialtype)::text = 'BOOK'::text)
+                           Rows Removed by Filter: 44050
+                           Buffers: shared hit=1866 read=2762 written=85
+                     ->  Parallel Seq Scan on checkouts_2020_2024 checkouts_part_4  (cost=0.00..5930.08 rows=49590 width=4) (actual time=0.004..17.355 rows=117850 loops=1)
+                           Filter: ((materialtype)::text = 'BOOK'::text)
+                           Rows Removed by Filter: 132150
+                           Buffers: shared hit=4628
+ Planning:
+   Buffers: shared hit=45
+ Planning Time: 0.103 ms
+ Execution Time: 40.660 ms
+(30 rows)
+
+SELECT COUNT(*) AS rows_before FROM checkouts_part;
+ rows_before 
+-------------
+     1000000
+(1 row)
+
+ALTER TABLE checkouts_part DETACH PARTITION checkouts_2005_2009;
+ALTER TABLE
+SELECT COUNT(*) AS rows_after_detach FROM checkouts_part;
+ rows_after_detach 
+-------------------
+            750000
+(1 row)
+
+SELECT COUNT(*) AS rows_in_archive  FROM checkouts_2005_2009;
+ rows_in_archive 
+-----------------
+          250000
+(1 row)
+
+ALTER TABLE checkouts_part ATTACH PARTITION checkouts_2005_2009 FOR VALUES FROM (2005) TO (2010);
+ALTER TABLE
+SELECT COUNT(*) AS rows_after_attach FROM checkouts_part;
+ rows_after_attach 
+-------------------
+           1000000
+(1 row)
+
+INSERT INTO checkouts_part (id, materialtype, checkoutyear, checkoutmonth, checkouts, title)
+VALUES (0, 'BOOK', 2200, 1, 1, 'Год вне диапазона');
+CREATE TABLE checkouts_default PARTITION OF checkouts_part DEFAULT;
+psql:02_tasks.sql:37: ERROR:  no partition of relation "checkouts_part" found for row
+DETAIL:  Partition key of the failing row contains (checkoutyear) = (2200).
+CREATE TABLE
+INSERT INTO checkouts_part (id, materialtype, checkoutyear, checkoutmonth, checkouts, title)
+VALUES (0, 'BOOK', 2200, 1, 1, 'Год вне диапазона');
+INSERT 0 1
+SELECT tableoid::regclass AS partition, checkoutyear, title FROM checkouts_part WHERE checkoutyear = 2200;
+     partition     | checkoutyear |       title       
+-------------------+--------------+-------------------
+ checkouts_default |         2200 | Год вне диапазона
+(1 row)
+
+DROP TABLE checkouts_default;
+DROP TABLE
+DROP TABLE IF EXISTS checkouts_hash;
+DROP TABLE
+CREATE TABLE checkouts_hash (LIKE checkouts_part) PARTITION BY HASH (id);
+CREATE TABLE
+CREATE TABLE checkouts_hash_0 PARTITION OF checkouts_hash FOR VALUES WITH (MODULUS 3, REMAINDER 0);
+CREATE TABLE
+CREATE TABLE checkouts_hash_1 PARTITION OF checkouts_hash FOR VALUES WITH (MODULUS 3, REMAINDER 1);
+CREATE TABLE
+CREATE TABLE checkouts_hash_2 PARTITION OF checkouts_hash FOR VALUES WITH (MODULUS 3, REMAINDER 2);
+CREATE TABLE
+INSERT INTO checkouts_hash SELECT * FROM checkouts_part;
+INSERT 0 1000000
+SELECT tableoid::regclass AS partition, COUNT(*) AS rows,
+       round(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct
+FROM checkouts_hash GROUP BY 1 ORDER BY 1;
+    partition     |  rows  |  pct  
+------------------+--------+-------
+ checkouts_hash_0 | 333263 | 33.33
+ checkouts_hash_1 | 333497 | 33.35
+ checkouts_hash_2 | 333240 | 33.32
+(3 rows)
+
+EXPLAIN SELECT * FROM checkouts_hash WHERE id = 12345;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..8397.91 rows=1079 width=202)
+   Workers Planned: 2
+   ->  Parallel Seq Scan on checkouts_hash_2 checkouts_hash  (cost=0.00..7290.01 rows=450 width=202)
+         Filter: (id = 12345)
+(4 rows)
+
+EXPLAIN SELECT COUNT(*) FROM checkouts_hash WHERE checkoutyear = 2019;
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=22899.29..22899.30 rows=1 width=8)
+   ->  Gather  (cost=22899.07..22899.28 rows=2 width=8)
+         Workers Planned: 2
+         ->  Partial Aggregate  (cost=21899.07..21899.08 rows=1 width=8)
+               ->  Parallel Append  (cost=0.00..21895.70 rows=1350 width=0)
+                     ->  Parallel Seq Scan on checkouts_hash_1 checkouts_hash_2  (cost=0.00..7303.02 rows=450 width=0)
+                           Filter: (checkoutyear = 2019)
+                     ->  Parallel Seq Scan on checkouts_hash_0 checkouts_hash_1  (cost=0.00..7295.92 rows=450 width=0)
+                           Filter: (checkoutyear = 2019)
+                     ->  Parallel Seq Scan on checkouts_hash_2 checkouts_hash_3  (cost=0.00..7290.01 rows=450 width=0)
+                           Filter: (checkoutyear = 2019)
+(11 rows)
+

@@ -1,0 +1,146 @@
+
+=================== 0. Два сервера в одной сети: primary (wal_level=logical) и replica ===================
+SHOW wal_level
+ wal_level 
+-----------
+ logical
+(1 row)
+
+SELECT COUNT(*) AS titles FROM titles
+ titles 
+--------
+   5000
+(1 row)
+
+
+=================== 1. primary: публикация таблиц titles и checkout_facts ===================
+CREATE PUBLICATION pub_lib FOR TABLE titles, checkout_facts
+CREATE PUBLICATION
+
+=================== 2. replica: схема переносится вручную (DDL не реплицируется), затем подписка ===================
+CREATE DATABASE
+NOTICE:  created replication slot "sub_lib" on publisher
+CREATE SUBSCRIPTION sub_lib CONNECTION 'host=hpd-w12-primary dbname=seattle_library user=postgres password=***' PUBLICATION pub_lib
+CREATE SUBSCRIPTION
+-- начальная синхронизация (COPY) завершена
+SELECT (SELECT COUNT(*) FROM titles) AS titles, (SELECT COUNT(*) FROM checkout_facts) AS facts
+ titles | facts 
+--------+-------
+   5000 |  5000
+(1 row)
+
+SELECT (SELECT COUNT(*) FROM titles) AS titles, (SELECT COUNT(*) FROM checkout_facts) AS facts
+ titles | facts 
+--------+-------
+   5000 |  5000
+(1 row)
+
+
+=================== 3. INSERT/UPDATE/DELETE на primary доходят до replica ===================
+INSERT INTO titles (title, creator) VALUES ('Новая книга с primary', 'Занятие 12') RETURNING title_id
+ title_id 
+----------
+     5001
+(1 row)
+
+INSERT 0 1
+UPDATE checkout_facts SET checkouts = 999 WHERE fact_id = 1
+UPDATE 1
+DELETE FROM checkout_facts WHERE fact_id = 2
+DELETE 1
+SELECT title_id, title FROM titles WHERE title = 'Новая книга с primary'
+ title_id |         title         
+----------+-----------------------
+     5001 | Новая книга с primary
+(1 row)
+
+SELECT fact_id, checkouts FROM checkout_facts WHERE fact_id IN (1, 2)
+ fact_id | checkouts 
+---------+-----------
+       1 |       999
+(1 row)
+
+
+=================== 4. DDL не реплицируется: новый столбец на primary ломает применение изменений ===================
+ALTER TABLE titles ADD COLUMN note text
+ALTER TABLE
+INSERT INTO titles (title, note) VALUES ('Книга после ALTER', 'есть note')
+INSERT 0 1
+SELECT column_name FROM information_schema.columns WHERE table_name = 'titles' AND column_name = 'note'
+ column_name 
+-------------
+(0 rows)
+
+SELECT COUNT(*) AS arrived FROM titles WHERE title = 'Книга после ALTER'
+ arrived 
+---------
+       0
+(1 row)
+
+2026-10-22 05:23:56.545 UTC [94] ERROR:  logical replication target relation "public.titles" is missing replicated column: "note"
+-- исправляем: тот же ALTER на replica, применение продолжается
+ALTER TABLE titles ADD COLUMN note text
+ALTER TABLE
+SELECT title, note FROM titles WHERE title = 'Книга после ALTER'
+       title       |   note    
+-------------------+-----------
+ Книга после ALTER | есть note
+(1 row)
+
+
+=================== 5. Последовательности не реплицируются: запись на replica с автоматическим id ===================
+SELECT last_value FROM titles_title_id_seq
+ last_value 
+------------
+       5002
+(1 row)
+
+SELECT last_value FROM titles_title_id_seq
+ last_value 
+------------
+          1
+(1 row)
+
+INSERT INTO titles (title) VALUES ('Запись на replica')
+ERROR:  duplicate key value violates unique constraint "titles_pkey"
+DETAIL:  Key (title_id)=(1) already exists.
+INSERT INTO titles (title_id, title) VALUES (900001, 'Запись на replica с явным id')
+INSERT 0 1
+
+=================== 6. Отказ primary: replica читает и пишет, но новых изменений не получает ===================
+-- primary остановлен
+SELECT COUNT(*) AS titles_on_replica FROM titles
+ titles_on_replica 
+-------------------
+              5003
+(1 row)
+
+INSERT INTO checkout_facts (fact_id, title_id, checkoutyear, checkoutmonth, materialtype, checkouts) VALUES (900001, 1, 2019, 7, 'BOOK', 5)
+INSERT 0 1
+SELECT subname, pid, received_lsn FROM pg_stat_subscription
+ subname | pid | received_lsn 
+---------+-----+--------------
+ sub_lib |     | 
+(1 row)
+
+2026-10-22 05:24:09.269 UTC [162] ERROR:  could not connect to the publisher: could not translate host name "hpd-w12-primary" to address: Name or service not known
+2026-10-22 05:24:14.253 UTC [163] ERROR:  could not connect to the publisher: could not translate host name "hpd-w12-primary" to address: Name or service not known
+
+=================== 7. primary снова запущен: репликация продолжается сама; изменения replica на primary не попадают ===================
+INSERT INTO titles (title) VALUES ('Книга после восстановления primary')
+INSERT 0 1
+SELECT title_id, title FROM titles WHERE title LIKE 'Книга после восстановления%'
+ title_id |               title                
+----------+------------------------------------
+     5003 | Книга после восстановления primary
+(1 row)
+
+SELECT COUNT(*) AS replica_row_on_primary FROM titles WHERE title_id = 900001
+ replica_row_on_primary 
+------------------------
+                      0
+(1 row)
+
+
+=================== Уборка ===================
+-- контейнеры и сеть удалены
