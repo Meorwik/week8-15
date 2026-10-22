@@ -1,0 +1,491 @@
+{
+  "info": {
+    "name": "HPD 08 — Seattle Library API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Топ за 2019 (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Выдачи по названию (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/titles/Spinning silver",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "Spinning silver"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Добавить выдачу (201)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 201', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title_id\": 2725,\n  \"year\": 2020,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 7\n}"
+        }
+      }
+    },
+    {
+      "name": "4. month=13 (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title_id\": 2725,\n  \"year\": 2020,\n  \"month\": 13,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 7\n}"
+        }
+      }
+    },
+    {
+      "name": "5. Несуществующий title_id (404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title_id\": 999999,\n  \"year\": 2020,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 7\n}"
+        }
+      }
+    },
+    {
+      "name": "6. Изменить число выдач (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title_id\": 2725,\n  \"year\": 2020,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 12\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Удалить запись (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ],
+          "query": [
+            {
+              "key": "title_id",
+              "value": "2725"
+            },
+            {
+              "key": "year",
+              "value": "2020"
+            },
+            {
+              "key": "month",
+              "value": "5"
+            },
+            {
+              "key": "material_type",
+              "value": "BOOK"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Повторное удаление (404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ],
+          "query": [
+            {
+              "key": "title_id",
+              "value": "2725"
+            },
+            {
+              "key": "year",
+              "value": "2020"
+            },
+            {
+              "key": "month",
+              "value": "5"
+            },
+            {
+              "key": "material_type",
+              "value": "BOOK"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Дополнительно: ошибки валидации",
+      "item": [
+        {
+          "name": "Топ без year (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/titles/top?limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "titles",
+                "top"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Топ limit=500 (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/titles/top?year=2019&limit=500",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "titles",
+                "top"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2019"
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Название не найдено (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/titles/zzz-no-such-title",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "titles",
+                "zzz-no-such-title"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT несуществующей записи (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/checkouts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "checkouts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title_id\": 2725,\n  \"year\": 1900,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 7\n}"
+            }
+          }
+        },
+        {
+          "name": "checkouts=-1 (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/checkouts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "checkouts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title_id\": 2725,\n  \"year\": 2020,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": -1\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

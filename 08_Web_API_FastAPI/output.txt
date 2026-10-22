@@ -1,0 +1,151 @@
+# Занятие 8. Вывод прогона: PostgreSQL 17 в docker, uvicorn на порту 8008 (у меня 8000 занят другим сервисом; у вас будет 8000).
+# 2026-10-22 10:17
+
+== Маршруты в /docs (из /openapi.json)
+GET /titles/top
+GET /titles/{title}
+POST /checkouts
+PUT /checkouts
+DELETE /checkouts
+
+== 1. Топ за 2019
+$ curl http://127.0.0.1:8008/titles/top?year=2019&limit=5
+[{"title_id":4892,"title":"You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)","total":848},{"title_id":3374,"title":"Less : a novel / Andrew Sean Greer.","total":458},{"title_id":2725,"title":"Spinning silver / Naomi Novik.","total":388},{"title_id":3582,"title":"AppleMagazine","total":361},{"title_id":156,"title":"China Rich Girlfriend: Crazy Rich Asians Series, Book 2","total":199}]
+-> HTTP 200
+
+== 2. Выдачи по названию
+$ curl http://127.0.0.1:8008/titles/Spinning%20silver
+[{"title_id":2725,"title":"Spinning silver / Naomi Novik.","year":2019,"month":1,"material_type":"BOOK","checkouts":388}]
+-> HTTP 200
+
+== 3. POST: добавить выдачу
+$ curl -X POST http://127.0.0.1:8008/checkouts -H content-type: application/json -d {"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+{"fact_id":5009,"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+-> HTTP 201
+
+== 4. POST: month=13
+$ curl -X POST http://127.0.0.1:8008/checkouts -H content-type: application/json -d {"title_id":2725,"year":2020,"month":13,"material_type":"BOOK","checkouts":7}
+{"detail":[{"type":"less_than_equal","loc":["body","month"],"msg":"Input should be less than or equal to 12","input":13,"ctx":{"le":12}}]}
+-> HTTP 422
+
+== 5. POST: несуществующий title_id (ForeignKeyViolation -> 404, а не 500)
+$ curl -X POST http://127.0.0.1:8008/checkouts -H content-type: application/json -d {"title_id":999999,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+{"detail":"Название с title_id=999999 не найдено"}
+-> HTTP 404
+
+== 6. PUT: изменить число выдач
+$ curl -X PUT http://127.0.0.1:8008/checkouts -H content-type: application/json -d {"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":12}
+{"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":12}
+-> HTTP 200
+
+== 7. DELETE
+$ curl -X DELETE http://127.0.0.1:8008/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK
+{"deleted":{"title_id":2725,"year":2020,"month":5,"material_type":"BOOK"}}
+-> HTTP 200
+
+== 8. DELETE повторно
+$ curl -X DELETE http://127.0.0.1:8008/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK
+{"detail":"Запись о выдаче не найдена"}
+-> HTTP 404
+
+== Доп.: топ без обязательного year
+$ curl http://127.0.0.1:8008/titles/top?limit=5
+{"detail":[{"type":"missing","loc":["query","year"],"msg":"Field required","input":null}]}
+-> HTTP 422
+
+== Доп.: limit=500
+$ curl http://127.0.0.1:8008/titles/top?year=2019&limit=500
+{"detail":[{"type":"less_than_equal","loc":["query","limit"],"msg":"Input should be less than or equal to 100","input":"500","ctx":{"le":100}}]}
+-> HTTP 422
+
+== Доп.: название не найдено
+$ curl http://127.0.0.1:8008/titles/zzz-no-such-title
+{"detail":"Выдачи по названию «zzz-no-such-title» не найдены"}
+-> HTTP 404
+
+== Эксперимент: в копии api.py маршрут /titles/{title} объявлен РАНЬШЕ /titles/top (порт 8009)
+$ curl 'http://127.0.0.1:8009/titles/top?year=2019&limit=3'
+-> HTTP 200, строк: 54 (а просили limit=3). Это поиск ILIKE '%top%', а не топ:
+   102 top picks for homeschool curriculum : choosing the right curriculum and approach for e
+   À la mode : 120 recipes in 60 pairings : pies, tarts, cakes, crisps, and more topped with 
+   Allen Carr's Easy Way for Women to Stop Smoking
+   At home with books : how booklovers live with and care for their libraries / Estelle Ellis
+   ...
+
+== Коллекция Postman (postman_collection.json), прогон через newman (CLI-запускатель коллекций Postman)
+newman
+
+HPD 08 — Seattle Library API
+
+Root 1. Топ за 2019 (200)
+  GET http://127.0.0.1:8008/titles/top?year=2019&limit=5 [200 OK, 576B, 25ms]
+  Pass  код 200
+
+Root 2. Выдачи по названию (200)
+  GET http://127.0.0.1:8008/titles/Spinning silver [200 OK, 247B, 11ms]
+  Pass  код 200
+
+Root 3. Добавить выдачу (201)
+  POST http://127.0.0.1:8008/checkouts [201 Created, 221B, 7ms]
+  Pass  код 201
+
+Root 4. month=13 (422)
+  POST http://127.0.0.1:8008/checkouts [422 Unprocessable Content, 283B, 1ms]
+  Pass  код 422
+
+Root 5. Несуществующий title_id (404)
+  POST http://127.0.0.1:8008/checkouts [404 Not Found, 200B, 6ms]
+  Pass  код 404
+
+Root 6. Изменить число выдач (200)
+  PUT http://127.0.0.1:8008/checkouts [200 OK, 202B, 8ms]
+  Pass  код 200
+
+Root 7. Удалить запись (200)
+  DELETE http://127.0.0.1:8008/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK [200 OK, 199B, 8ms]
+  Pass  код 200
+
+Root 8. Повторное удаление (404)
+  DELETE http://127.0.0.1:8008/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK [404 Not Found, 193B, 6ms]
+  Pass  код 404
+
+Folder Дополнительно: ошибки валидации
+Sub-folder Топ без year (422)
+  GET http://127.0.0.1:8008/titles/top?limit=5 [422 Unprocessable Content, 234B, 1ms]
+  Pass  код 422
+
+Sub-folder Топ limit=500 (422)
+  GET http://127.0.0.1:8008/titles/top?year=2019&limit=500 [422 Unprocessable Content, 289B, 2ms]
+  Pass  код 422
+
+Sub-folder Название не найдено (404)
+  GET http://127.0.0.1:8008/titles/zzz-no-such-title [404 Not Found, 221B, 11ms]
+  Pass  код 404
+
+Sub-folder PUT несуществующей записи (404)
+  PUT http://127.0.0.1:8008/checkouts [404 Not Found, 193B, 7ms]
+  Pass  код 404
+
+Sub-folder checkouts=-1 (422)
+  POST http://127.0.0.1:8008/checkouts [422 Unprocessable Content, 291B, 1ms]
+  Pass  код 422
+
+---------------------------------------------------------------
+|                         |        executed |          failed |
+--------------------------+-----------------+------------------
+|              iterations |               1 |               0 |
+--------------------------+-----------------+------------------
+|                requests |              13 |               0 |
+--------------------------+-----------------+------------------
+|            test-scripts |              13 |               0 |
+--------------------------+-----------------+------------------
+|      prerequest-scripts |               0 |               0 |
+--------------------------+-----------------+------------------
+|              assertions |              13 |               0 |
+---------------------------------------------------------------
+| total run duration: 226ms                                   |
+---------------------------------------------------------------
+| total data received: 1.61kB (approx)                        |
+---------------------------------------------------------------
+| average response time: 7ms [min: 1ms, max: 25ms, s.d.: 6ms] |
+---------------------------------------------------------------
