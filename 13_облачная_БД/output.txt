@@ -1,0 +1,45 @@
+Занятие 13. Прогон 22.10.2026. ВНИМАНИЕ: «облако» здесь — второй docker-контейнер postgres:17 (порт 55471),
+а не Neon/Supabase: регистрацию делает сам студент. После реального прогона замените этот вывод своим.
+
+$ export DATABASE_URL=... CLOUD_DSN=...   # значения не печатаются
+$ python migrate_to_cloud.py
+таблица           локально    облако  совпало
+titles                5000      5000  да
+checkout_facts        5000      5000  да
+subjects              7298      7298  да
+title_subjects       17988     17988  да
+облачный сервер: адрес 172.17.0.6, PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2), SSL=False
+медиана top_titles(2019, 10), 20 запусков: локально 7.6 мс, облако 9.1 мс
+топ-3 в облаке: [(4892, 848), (3374, 458), (2725, 388)]
+
+--- тот же запрос занятия 7 в «облаке» (в pgAdmin: Query Tool на облачном сервере) ---
+ title_id |                                                      title                                                       | total 
+----------+------------------------------------------------------------------------------------------------------------------+-------
+     4892 | You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged) |   848
+     3374 | Less : a novel / Andrew Sean Greer.                                                                              |   458
+     2725 | Spinning silver / Naomi Novik.                                                                                   |   388
+     3582 | AppleMagazine                                                                                                    |   361
+      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2                                                          |   199
+(5 rows)
+
+--- он же локально ---
+ title_id |                                                      title                                                       | total 
+----------+------------------------------------------------------------------------------------------------------------------+-------
+     4892 | You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged) |   848
+     3374 | Less : a novel / Andrew Sean Greer.                                                                              |   458
+     2725 | Spinning silver / Naomi Novik.                                                                                   |   388
+     3582 | AppleMagazine                                                                                                    |   361
+      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2                                                          |   199
+(5 rows)
+
+--- последовательности после COPY сдвинуты: INSERT в облаке не падает на дубле ключа ---
+BEGIN
+ title_id 
+----------
+     5001
+(1 row)
+
+INSERT 0 1
+ROLLBACK
+--- без CLOUD_DSN скрипт не запускается (пароля в коде нет) ---
+KeyError: 'CLOUD_DSN'
