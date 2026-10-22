@@ -1,38 +1,38 @@
-Занятие 13. Прогон 22.10.2026. ВНИМАНИЕ: «облако» здесь — второй docker-контейнер postgres:17 (порт 55471),
-а не Neon/Supabase: регистрацию делает сам студент. После реального прогона замените этот вывод своим.
+Занятие 13. Прогон 22.10.2026 11:35: локальная база (PostgreSQL 17 в docker) -> Neon (ветка production, регион AWS us-east-2).
 
-$ export DATABASE_URL=... CLOUD_DSN=...   # значения не печатаются
+$ export DATABASE_URL=... CLOUD_DSN=...   # значения не печатаются, CLOUD_DSN лежит в .env (в гит не попадает)
 $ python migrate_to_cloud.py
 таблица           локально    облако  совпало
 titles                5000      5000  да
 checkout_facts        5000      5000  да
 subjects              7298      7298  да
 title_subjects       17988     17988  да
-облачный сервер: адрес 172.17.0.6, PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2), SSL=False
-медиана top_titles(2019, 10), 20 запусков: локально 7.6 мс, облако 9.1 мс
+облачный сервер: PostgreSQL 18.6 (fd34222), TLS до сервера: True
+медиана top_titles(2019, 10), 20 запусков: локально 7.8 мс, облако 1843.1 мс
+медиана SELECT 1 по открытому соединению: локально 0.03 мс, облако 205.2 мс
 топ-3 в облаке: [(4892, 848), (3374, 458), (2725, 388)]
 
---- тот же запрос занятия 7 в «облаке» (в pgAdmin: Query Tool на облачном сервере) ---
- title_id |                                                      title                                                       | total 
-----------+------------------------------------------------------------------------------------------------------------------+-------
-     4892 | You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged) |   848
-     3374 | Less : a novel / Andrew Sean Greer.                                                                              |   458
-     2725 | Spinning silver / Naomi Novik.                                                                                   |   388
-     3582 | AppleMagazine                                                                                                    |   361
-      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2                                                          |   199
+--- тот же запрос занятия 7 в облаке (psql к Neon; в pgAdmin то же самое через Query Tool) ---
+ title_id |                            title                             | total 
+----------+--------------------------------------------------------------+-------
+     4892 | You Are a Badass: How to Stop Doubting Your Greatness and St |   848
+     3374 | Less : a novel / Andrew Sean Greer.                          |   458
+     2725 | Spinning silver / Naomi Novik.                               |   388
+     3582 | AppleMagazine                                                |   361
+      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2      |   199
 (5 rows)
 
 --- он же локально ---
- title_id |                                                      title                                                       | total 
-----------+------------------------------------------------------------------------------------------------------------------+-------
-     4892 | You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged) |   848
-     3374 | Less : a novel / Andrew Sean Greer.                                                                              |   458
-     2725 | Spinning silver / Naomi Novik.                                                                                   |   388
-     3582 | AppleMagazine                                                                                                    |   361
-      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2                                                          |   199
+ title_id |                            title                             | total 
+----------+--------------------------------------------------------------+-------
+     4892 | You Are a Badass: How to Stop Doubting Your Greatness and St |   848
+     3374 | Less : a novel / Andrew Sean Greer.                          |   458
+     2725 | Spinning silver / Naomi Novik.                               |   388
+     3582 | AppleMagazine                                                |   361
+      156 | China Rich Girlfriend: Crazy Rich Asians Series, Book 2      |   199
 (5 rows)
 
---- последовательности после COPY сдвинуты: INSERT в облаке не падает на дубле ключа ---
+--- после переноса вставка в облаке работает: последовательность сдвинута на MAX+1 ---
 BEGIN
  title_id 
 ----------

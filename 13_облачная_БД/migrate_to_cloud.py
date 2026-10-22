@@ -57,6 +57,20 @@ def median_ms(dsn, n=20):
     return statistics.median(times)
 
 
+def ping_ms(dsn, n=20):
+    """Медиана SELECT 1 по уже открытому соединению: чистое время «туда-обратно» по сети."""
+    conn = psycopg2.connect(dsn)
+    times = []
+    with conn.cursor() as cur:
+        for _ in range(n):
+            t0 = time.perf_counter()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            times.append((time.perf_counter() - t0) * 1000)
+    conn.close()
+    return statistics.median(times)
+
+
 src, dst = psycopg2.connect(LOCAL), psycopg2.connect(CLOUD)
 with src, dst, src.cursor() as s, dst.cursor() as d:
     d.execute(DDL)
@@ -74,11 +88,12 @@ print(f"{'таблица':<16}{'локально':>10}{'облако':>10}  со
 for t in TABLES:
     print(f"{t:<16}{lc[t]:>10}{cc[t]:>10}  {'да' if lc[t] == cc[t] else 'НЕТ'}")
 with dst.cursor() as d:
-    d.execute("SELECT inet_server_addr(), current_setting('server_version'), "
-              "(SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid())")
-    print("облачный сервер: адрес %s, PostgreSQL %s, SSL=%s" % d.fetchone())
+    d.execute("SELECT current_setting('server_version')")
+    # TLS смотрим со стороны клиента: pg_stat_ssl в Neon показывает соединение прокси -> база, а не наше
+    print(f"облачный сервер: PostgreSQL {d.fetchone()[0]}, TLS до сервера: {dst.info.ssl_in_use}")
 src.close(), dst.close()
 
 loc, cl = median_ms(LOCAL), median_ms(CLOUD)
 print(f"медиана top_titles(2019, 10), 20 запусков: локально {loc:.1f} мс, облако {cl:.1f} мс")
+print(f"медиана SELECT 1 по открытому соединению: локально {ping_ms(LOCAL):.2f} мс, облако {ping_ms(CLOUD):.1f} мс")
 print("топ-3 в облаке:", [(r["title_id"], r["total"]) for r in db.top_titles(2019, 3)])
