@@ -1,0 +1,252 @@
+Занятие 10. Вывод прогона 22.10.2026, PostgreSQL 17 в docker (порт 55450), Python 3.13 + psycopg2 2.9.
+S1 и S2 — два отдельных соединения (две сессии), как два окна psql. (S1)/(S2) перед ответом — чей это ответ.
+
+################ psql -e -f 00_setup_w10.sql ################
+DROP TABLE IF EXISTS loans, copies;
+psql:00_setup_w10.sql:5: NOTICE:  table "loans" does not exist, skipping
+psql:00_setup_w10.sql:5: NOTICE:  table "copies" does not exist, skipping
+DROP TABLE
+CREATE TABLE copies (
+    title_id  INT PRIMARY KEY REFERENCES titles(title_id),
+    available INT NOT NULL CHECK (available >= 0)   -- сколько экземпляров сейчас на полке
+);
+CREATE TABLE
+CREATE TABLE loans (
+    loan_id   SERIAL PRIMARY KEY,
+    title_id  INT NOT NULL REFERENCES copies(title_id),
+    reader    TEXT NOT NULL,                         -- NOT NULL: на этом ограничении ломаем транзакцию в задании 1
+    loan_date DATE NOT NULL DEFAULT current_date
+);
+CREATE TABLE
+INSERT INTO copies (title_id, available)
+SELECT title_id, 10 FROM titles;
+INSERT 0 5000
+SELECT (SELECT COUNT(*) FROM copies) AS copies_rows,
+       (SELECT COUNT(*) FROM loans)  AS loans_rows;
+ copies_rows | loans_rows 
+-------------+------------
+        5000 |          0
+(1 row)
+
+SELECT c.title_id, t.title, c.available
+FROM copies c JOIN titles t ON t.title_id = c.title_id
+WHERE c.title_id IN (1, 2);
+ title_id |                                                                     title                                                                     | available 
+----------+-----------------------------------------------------------------------------------------------------------------------------------------------+-----------
+        1 | Avengers. 4, Infinity / writer, Jonathan Hickman ; penciler, Leinil Francis Yu ; inkers, Gerry Alanguilan (#18-22) & Leinil Francis Yu (#23). |        10
+        2 | Siberian Treasure: Marina Alexander Adventure Series, Book 1                                                                                  |        10
+(2 rows)
+
+
+################ python w10_demo.py ################
+
+====================================================================================================
+1. Атомарность: UPDATE copies + INSERT loans с reader = NULL в одной транзакции
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id IN (1, 2)
+     (S2) UPDATE 2
+S2> SELECT title_id, title FROM titles WHERE title_id IN (1, 2) ORDER BY title_id
+     title_id=1, title=Avengers. 4, Infinity / writer, Jonathan Hickman ; penciler, Leinil Francis Yu ; inkers, Gerry Alanguilan (#18-22) & Leinil Francis Yu (#23).
+     title_id=2, title=Siberian Treasure: Marina Alexander Adventure Series, Book 1
+S1> SELECT COUNT(*) AS loans FROM loans
+     loans=0
+S1> BEGIN
+     (S1) BEGIN
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) UPDATE 1
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=9
+S2> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S1> INSERT INTO loans (title_id, reader) VALUES (1, NULL)
+     (S1) ERROR:  null value in column "reader" of relation "loans" violates not-null constraint
+     DETAIL:  Failing row contains (1, 1, null, 2026-10-22).
+S1> SELECT available FROM copies WHERE title_id = 1
+     (S1) ERROR:  current transaction is aborted, commands ignored until end of transaction block
+S1> ROLLBACK
+     (S1) ROLLBACK
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S1> SELECT COUNT(*) AS loans FROM loans
+     loans=0
+
+-- для сравнения: та же транзакция без ошибки, S2 видит изменения только после COMMIT
+S1> BEGIN
+     (S1) BEGIN
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) UPDATE 1
+S1> INSERT INTO loans (title_id, reader) VALUES (1, 'Иванов') RETURNING loan_id
+     loan_id=2
+S2> SELECT (SELECT available FROM copies WHERE title_id = 1) AS available, (SELECT COUNT(*) FROM loans) AS loans
+     available=10, loans=0
+S1> COMMIT
+     (S1) COMMIT
+S2> SELECT (SELECT available FROM copies WHERE title_id = 1) AS available, (SELECT COUNT(*) FROM loans) AS loans
+     available=9, loans=1
+
+====================================================================================================
+2. READ COMMITTED: S1 читает дважды, S2 между чтениями меняет значение и делает COMMIT
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> BEGIN ISOLATION LEVEL READ COMMITTED
+     (S1) BEGIN
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S2> UPDATE copies SET available = 7 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=7
+S1> COMMIT
+     (S1) COMMIT
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=7
+
+====================================================================================================
+2. REPEATABLE READ: S1 читает дважды, S2 между чтениями меняет значение и делает COMMIT
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> BEGIN ISOLATION LEVEL REPEATABLE READ
+     (S1) BEGIN
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S2> UPDATE copies SET available = 7 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S1> COMMIT
+     (S1) COMMIT
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=7
+
+====================================================================================================
+2а. READ UNCOMMITTED в PostgreSQL = READ COMMITTED: грязного чтения нет
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> BEGIN ISOLATION LEVEL READ UNCOMMITTED
+     (S1) BEGIN
+S1> SHOW transaction_isolation
+     transaction_isolation=read uncommitted
+S2> BEGIN
+     (S2) BEGIN
+S2> UPDATE copies SET available = 999 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=10
+S2> ROLLBACK
+     (S2) ROLLBACK
+S1> COMMIT
+     (S1) COMMIT
+
+====================================================================================================
+3. Потерянное обновление: 2 потока x 50 раз «прочитать available, вычесть 1, записать»; старт 100, ждём 0
+====================================================================================================
+S1> UPDATE copies SET available = 100 WHERE title_id = 1
+     (S1) UPDATE 1
+   SELECT, затем UPDATE SET available = <прочитанное - 1>  (ошибка)
+   итог available = 50 (ожидали 0), потеряно обновлений: 50, время 0.10 с
+
+S1> UPDATE copies SET available = 100 WHERE title_id = 1
+     (S1) UPDATE 1
+   исправление 1: UPDATE ... SET available = available - 1
+   итог available = 0 (ожидали 0), потеряно обновлений: 0, время 0.07 с
+
+S1> UPDATE copies SET available = 100 WHERE title_id = 1
+     (S1) UPDATE 1
+   исправление 2: BEGIN; SELECT ... FOR UPDATE; UPDATE; COMMIT
+   итог available = 0 (ожидали 0), потеряно обновлений: 0, время 0.19 с
+
+
+====================================================================================================
+4. REPEATABLE READ: could not serialize access и повтор транзакции
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id = 1
+     (S2) UPDATE 1
+   попытка 1: S1 прочитал available = 10
+S2> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S2) UPDATE 1
+   попытка 1: ERROR:  could not serialize access due to concurrent update -> ROLLBACK и повтор
+   попытка 2: S1 прочитал available = 9
+   попытка 2: COMMIT прошёл
+S1> SELECT available FROM copies WHERE title_id = 1
+     available=8
+
+====================================================================================================
+5. Взаимоблокировка: S1 обновляет строки 1 -> 2, S2 обновляет 2 -> 1
+====================================================================================================
+S1> SELECT pg_backend_pid() AS s1_pid
+     s1_pid=135
+S2> SELECT pg_backend_pid() AS s2_pid
+     s2_pid=136
+S1> BEGIN
+     (S1) BEGIN
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) UPDATE 1
+S2> BEGIN
+     (S2) BEGIN
+S2> UPDATE copies SET available = available - 1 WHERE title_id = 2
+     (S2) UPDATE 1
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 2
+S2> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) ERROR:  deadlock detected
+     DETAIL:  Process 135 waits for ShareLock on transaction 1089; blocked by process 136.
+     Process 136 waits for ShareLock on transaction 1088; blocked by process 135.
+     HINT:  See server log for query details.
+     CONTEXT:  while updating tuple (22,30) in relation "copies"
+     (S2) UPDATE 1
+S1> ROLLBACK
+     (S1) ROLLBACK
+S2> ROLLBACK
+     (S2) ROLLBACK
+
+-- исправление: обе сессии обращаются к строкам в одном порядке (1, затем 2)
+S1> BEGIN
+     (S1) BEGIN
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) UPDATE 1
+S2> BEGIN
+     (S2) BEGIN
+S2> UPDATE copies SET available = available - 1 WHERE title_id = 1
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 2
+     (S1) UPDATE 1
+S1> COMMIT
+     (S1) COMMIT
+     (S2) UPDATE 1
+S2> UPDATE copies SET available = available - 1 WHERE title_id = 2
+     (S2) UPDATE 1
+S2> COMMIT
+     (S2) COMMIT
+S1> SELECT title_id, available FROM copies WHERE title_id IN (1, 2) ORDER BY title_id
+     title_id=1, available=6
+     title_id=2, available=8
+
+====================================================================================================
+6. MVCC: xmin и xmax строки до и после UPDATE
+====================================================================================================
+S2> UPDATE copies SET available = 10 WHERE title_id = 1
+     (S2) UPDATE 1
+S1> SELECT xmin, xmax, ctid, title_id, available FROM copies WHERE title_id = 1
+     xmin=1092, xmax=0, ctid=(22,177), title_id=1, available=10
+S1> BEGIN
+     (S1) BEGIN
+S1> SELECT txid_current() AS my_txid
+     my_txid=1093
+S1> UPDATE copies SET available = available - 1 WHERE title_id = 1
+     (S1) UPDATE 1
+S2> SELECT xmin, xmax, ctid, title_id, available FROM copies WHERE title_id = 1
+     xmin=1092, xmax=1093, ctid=(22,177), title_id=1, available=10
+S1> COMMIT
+     (S1) COMMIT
+S1> SELECT xmin, xmax, ctid, title_id, available FROM copies WHERE title_id = 1
+     xmin=1093, xmax=0, ctid=(22,178), title_id=1, available=9
+
+################ журнал сервера: docker logs hpd-w10 | grep -A6 'deadlock detected' ################
+2026-10-22 05:19:06.663 UTC [135] ERROR:  deadlock detected
+2026-10-22 05:19:06.663 UTC [135] DETAIL:  Process 135 waits for ShareLock on transaction 1089; blocked by process 136.
+	Process 136 waits for ShareLock on transaction 1088; blocked by process 135.
+	Process 135: UPDATE copies SET available = available - 1 WHERE title_id = 2
+	Process 136: UPDATE copies SET available = available - 1 WHERE title_id = 1
+2026-10-22 05:19:06.663 UTC [135] HINT:  See server log for query details.
+2026-10-22 05:19:06.663 UTC [135] CONTEXT:  while updating tuple (22,30) in relation "copies"
