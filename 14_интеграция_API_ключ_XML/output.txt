@@ -1,0 +1,175 @@
+# Занятие 14. Вывод прогона: PostgreSQL 17 в docker, uvicorn на порту 8014 (у вас будет 8000).
+# API_KEY — случайный ключ из secrets.token_urlsafe(24), в выводе заменён на $API_KEY. 2026-10-22 10:21
+
+== 1. Без ключа
+$ curl http://127.0.0.1:8014/titles/top?year=2019&limit=3
+{"detail":"Нет ключа или неверный ключ в заголовке X-API-Key"}
+-> HTTP 401
+
+== 2. Неверный ключ
+$ curl -H X-API-Key: wrong-key http://127.0.0.1:8014/titles/top?year=2019&limit=3
+{"detail":"Нет ключа или неверный ключ в заголовке X-API-Key"}
+-> HTTP 401
+
+== 3. Верный ключ, JSON
+$ curl -H X-API-Key: $API_KEY http://127.0.0.1:8014/titles/top?year=2019&limit=3
+[{"title_id":4892,"title":"You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)","total":848},{"title_id":3374,"title":"Less : a novel / Andrew Sean Greer.","total":458},{"title_id":2725,"title":"Spinning silver / Naomi Novik.","total":388}]
+-> HTTP 200
+
+== 4. Верный ключ, XML
+$ curl -H X-API-Key: $API_KEY http://127.0.0.1:8014/titles/top?year=2019&limit=3&format=xml
+<?xml version='1.0' encoding='utf-8'?>
+<titles year="2019"><title id="4892" total="848">You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)</title><title id="3374" total="458">Less : a novel / Andrew Sean Greer.</title><title id="2725" total="388">Spinning silver / Naomi Novik.</title></titles>
+-> HTTP 200
+
+== 5. format=csv
+$ curl -H X-API-Key: $API_KEY http://127.0.0.1:8014/titles/top?year=2019&limit=3&format=csv
+{"detail":[{"type":"literal_error","loc":["query","format"],"msg":"Input should be 'json' or 'xml'","input":"csv","ctx":{"expected":"'json' or 'xml'"}}]}
+-> HTTP 422
+
+== 6. POST без ключа
+$ curl -X POST http://127.0.0.1:8014/checkouts -H content-type: application/json -d {"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+{"detail":"Нет ключа или неверный ключ в заголовке X-API-Key"}
+-> HTTP 401
+
+== 7. POST с ключом
+$ curl -X POST http://127.0.0.1:8014/checkouts -H X-API-Key: $API_KEY -H content-type: application/json -d {"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+{"fact_id":5013,"title_id":2725,"year":2020,"month":5,"material_type":"BOOK","checkouts":7}
+-> HTTP 201
+
+==    (убираем тестовую запись)
+$ curl -X DELETE -H X-API-Key: $API_KEY http://127.0.0.1:8014/checkouts?title_id=2725&year=2020&month=5&material_type=BOOK
+{"deleted":{"title_id":2725,"year":2020,"month":5,"material_type":"BOOK"}}
+-> HTTP 200
+
+== 8. Поиск q=a (короче 2 символов)
+$ curl -H X-API-Key: $API_KEY http://127.0.0.1:8014/search?q=a
+{"detail":[{"type":"string_too_short","loc":["query","q"],"msg":"String should have at least 2 characters","input":"a","ctx":{"min_length":2}}]}
+-> HTTP 422
+
+== 9. Поиск 'crazy rich'
+$ curl -G -H 'X-API-Key: $API_KEY' http://127.0.0.1:8014/search --data-urlencode 'q=crazy rich'
+[{"title_id":156,"title":"China Rich Girlfriend: Crazy Rich Asians Series, Book 2"}]
+-> HTTP 200
+
+== 10. Инъекция q=' OR 1=1 --
+$ curl -G -H 'X-API-Key: $API_KEY' http://127.0.0.1:8014/search --data-urlencode "q=' OR 1=1 --"
+-> HTTP 200, строк: 50 (API отдаёт максимум 50). Первые 3:
+   Fancy Day in Room 1-A: I Can Read Level 1 (unabridged) (Unabridged)
+   Hawkeye. [Vol. 1], Anchor points / Kelly Thompson, writer ; Leonardo Romero (#1-4) & Michael Walsh (#5-6), artists ; Jordie Bellaire, color artist ; VC's Joe Sabino, letterer ; Julian Totino Tedesco, cover art.
+   Invincible. [Vol. 25], The end of all things. Part 2 / created by Robert Kirkman & Cory Walker ; [writer, Robert Kirkman ; penciller, Ryan Ottley (chapter 1-5, chapter 6 pgs 125-148), Cory Walker (chapter 6 pgs 149-172) ; inkers, Mark Morales (chapter 1, chapter 3-5, chapter 6 pgs 125-148), Ryan Ottley (chapter 2), Cory Walker (chapter 6 pgs 149-172) ; colorist, Nathan Fairbairn ; letterer, Rus Wooton].
+Строка ушла в БД как текст. В tsquery от неё остались слова '1' и '1' (or — стоп-слово, кавычка и -- выброшены):
+  tsquery  | found | all_titles 
+-----------+-------+------------
+ '1' & '1' |   192 |       5000
+(1 row)
+
+-> найдены 192 названия, где есть слово «1» («Book 1» и т.п.), а не все 5000. Условие OR 1=1 не выполнилось.
+
+== 11. Инъекция q=' OR ''=' (в тексте только стоп-слова и знаки)
+[]
+-> HTTP 200
+
+== 12. Страница клиента GET / без ключа
+-> HTTP 200, text/html; charset=utf-8
+
+== 13. Веб-клиент client.html в браузере (headless Chromium, playwright): ввёл ключ, нажал кнопки
+без ключа: HTTP 401: {"detail":"Нет ключа или неверный ключ в заголовке X-API-Key"}
+JSON: Строк: 5 |  | title_id	title	total | 4892	You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)	848 | 3374	Less : a novel / Andrew Sean Greer.	458 | 2725	Spinning silver / Naomi Novik.	388 | 3582	AppleMagazine	361 | 156	China Rich Girlfriend: Crazy Rich A
+XML: <?xml version='1.0' encoding='utf-8'?> <titles year="2019"><title id="4892" total="848">You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)
+поиск: Строк: 50 |  | title_id	title | 4296	12.21: A Novel (unabridged) (Unabridged) | 1185	Accidental Heroes: A Novel | 4002	A Christmas
+(скриншот: client_screenshot.png)
+
+== 14. Клиент на Python
+$ API_KEY=$API_KEY API_URL=http://127.0.0.1:8014 python client.py
+Топ-5 за 2019 (JSON):
+   848  You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)
+   458  Less : a novel / Andrew Sean Greer.
+   388  Spinning silver / Naomi Novik.
+   361  AppleMagazine
+   199  China Rich Girlfriend: Crazy Rich Asians Series, Book 2
+
+Топ-3 за 2019 (XML):
+<?xml version='1.0' encoding='utf-8'?>
+<titles year="2019"><title id="4892" total="848">You Are a Badass: How to Stop Doubting Your Greatness and Start Living an Awesome Life (unabridged) (Unabridged)</title><title id="3374" total="458">Less : a novel / Andrew Sean Greer.</title><title id="2725" total="388">Spinning silver / Naomi Novik.</title></titles>
+
+Поиск 'novel': найдено 50, первые 3:
+  4296: 12.21: A Novel (unabridged) (Unabridged)
+  1185: Accidental Heroes: A Novel
+  4002: A Christmas Escape: A Novel
+
+Без ключа: HTTP 401 {'detail': 'Нет ключа или неверный ключ в заголовке X-API-Key'}
+
+== 15. Коллекция Postman (postman_collection.json), прогон через newman
+newman
+
+HPD 14 — API с ключом
+
+Root 1. Без ключа (401)
+  GET http://127.0.0.1:8014/titles/top?year=2019&limit=5 [401 Unauthorized, 230B, 17ms]
+  Pass  код 401
+
+Root 2. Неверный ключ (401)
+  GET http://127.0.0.1:8014/titles/top?year=2019&limit=5 [401 Unauthorized, 230B, 2ms]
+  Pass  код 401
+
+Root 3. Верный ключ, JSON (200)
+  GET http://127.0.0.1:8014/titles/top?year=2019&limit=5 [200 OK, 576B, 9ms]
+  Pass  код 200
+  Pass  JSON-массив
+
+Root 4. Верный ключ, XML (200)
+  GET http://127.0.0.1:8014/titles/top?year=2019&limit=5&format=xml [200 OK, 622B, 9ms]
+  Pass  код 200
+  Pass  XML
+
+Root 5. format=csv (422)
+  GET http://127.0.0.1:8014/titles/top?year=2019&limit=5&format=csv [422 Unprocessable Content, 298B, 2ms]
+  Pass  код 422
+
+Root 6. POST без ключа (401)
+  POST http://127.0.0.1:8014/checkouts [401 Unauthorized, 230B, 2ms]
+  Pass  код 401
+
+Folder Дополнительно: поиск и инъекция
+Sub-folder Поиск 'novel' (200)
+  GET http://127.0.0.1:8014/search?q=novel [200 OK, 3.84kB, 37ms]
+  Pass  код 200
+
+Sub-folder Поиск q короче 2 символов (422)
+  GET http://127.0.0.1:8014/search?q=a [422 Unprocessable Content, 289B, 1ms]
+  Pass  код 422
+
+Sub-folder Инъекция ' OR 1=1 -- (200, не все строки)
+  GET http://127.0.0.1:8014/search?q=%27%20OR%201%3D1%20-- [200 OK, 6.04kB, 38ms]
+  Pass  код 200
+  Pass  не все 5000 строк
+
+Sub-folder Инъекция ' OR ''=' (200, пусто)
+  GET http://127.0.0.1:8014/search?q=%27%20OR%20%27%27%3D%27 [200 OK, 126B, 37ms]
+  Pass  код 200
+  Pass  пустой список
+
+Sub-folder Страница клиента без ключа (200)
+  GET http://127.0.0.1:8014/ [200 OK, 3.08kB, 2ms]
+  Pass  код 200
+
+-----------------------------------------------------------------
+|                         |         executed |           failed |
+--------------------------+------------------+-------------------
+|              iterations |                1 |                0 |
+--------------------------+------------------+-------------------
+|                requests |               11 |                0 |
+--------------------------+------------------+-------------------
+|            test-scripts |               11 |                0 |
+--------------------------+------------------+-------------------
+|      prerequest-scripts |                0 |                0 |
+--------------------------+------------------+-------------------
+|              assertions |               15 |                0 |
+-----------------------------------------------------------------
+| total run duration: 266ms                                     |
+-----------------------------------------------------------------
+| total data received: 13.99kB (approx)                         |
+-----------------------------------------------------------------
+| average response time: 14ms [min: 1ms, max: 38ms, s.d.: 14ms] |
+-----------------------------------------------------------------

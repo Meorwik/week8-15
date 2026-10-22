@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Seattle Library — клиент API</title>
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; }
+  label { margin-right: 1em; }
+  input, select, button { font-size: 1em; margin: .2em 0; }
+  table { border-collapse: collapse; margin-top: 1em; width: 100%; }
+  td, th { border: 1px solid #ccc; padding: .3em .5em; text-align: left; }
+  pre { background: #f4f4f4; padding: 1em; white-space: pre-wrap; }
+  .err { color: #b00; }
+</style>
+</head>
+<body>
+<h1>Seattle Library — клиент API</h1>
+<!-- Ключ НЕ зашит в страницу: исходный код публичной страницы видит любой (Ctrl+U). Пользователь вводит ключ сам. -->
+<p><label>X-API-Key: <input id="key" type="password" size="30" autocomplete="off"></label></p>
+
+<h2>Топ названий за год</h2>
+<p>
+  <label>Год: <input id="year" type="number" value="2019"></label>
+  <label>Лимит: <input id="limit" type="number" value="10" min="1" max="100"></label>
+  <label>Формат: <select id="format"><option>json</option><option>xml</option></select></label>
+  <button onclick="top10()">Запросить</button>
+</p>
+
+<h2>Поиск по названию</h2>
+<p>
+  <input id="q" placeholder="минимум 2 символа, например: novel">
+  <button onclick="search()">Найти</button>
+</p>
+
+<div id="out"></div>
+
+<script>
+const out = document.getElementById('out');
+const val = id => document.getElementById(id).value;
+
+async function call(path) {
+  const r = await fetch(path, { headers: { 'X-API-Key': val('key') } });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${text}`);
+  return { type: r.headers.get('content-type') || '', text };
+}
+
+function table(rows) {
+  if (!rows.length) return '<p>Ничего не найдено</p>';
+  const cols = Object.keys(rows[0]);
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return `<p>Строк: ${rows.length}</p><table><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr>` +
+    rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('') + '</table>';
+}
+
+async function show(path) {
+  try {
+    const { type, text } = await call(path);
+    if (type.includes('xml')) { out.innerHTML = '<pre></pre>'; out.firstChild.textContent = text; }
+    else out.innerHTML = table(JSON.parse(text));
+  } catch (e) { out.innerHTML = '<p class="err"></p>'; out.firstChild.textContent = e.message; }
+}
+
+const top10 = () => show(`/titles/top?year=${val('year')}&limit=${val('limit')}&format=${val('format')}`);
+const search = () => show(`/search?q=${encodeURIComponent(val('q'))}`);
+</script>
+</body>
+</html>

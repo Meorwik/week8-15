@@ -1,0 +1,460 @@
+{
+  "info": {
+    "name": "HPD 14 — API с ключом",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "apiKey",
+      "value": "ВСТАВЬТЕ_КЛЮЧ_ИЗ_API_KEY"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Без ключа (401)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Неверный ключ (401)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "wrong-key"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Верный ключ, JSON (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));",
+              "pm.test('JSON-массив', () => pm.expect(pm.response.json()).to.be.an('array'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{apiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Верный ключ, XML (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 200', () => pm.response.to.have.status(200));",
+              "pm.test('XML', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/xml'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{apiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5&format=xml",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            },
+            {
+              "key": "format",
+              "value": "xml"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. format=csv (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{apiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/titles/top?year=2019&limit=5&format=csv",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "titles",
+            "top"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2019"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            },
+            {
+              "key": "format",
+              "value": "csv"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. POST без ключа (401)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('код 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/checkouts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "checkouts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title_id\": 2725,\n  \"year\": 2020,\n  \"month\": 5,\n  \"material_type\": \"BOOK\",\n  \"checkouts\": 7\n}"
+        }
+      }
+    },
+    {
+      "name": "Дополнительно: поиск и инъекция",
+      "item": [
+        {
+          "name": "Поиск 'novel' (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/search?q=novel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "novel"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Поиск q короче 2 символов (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/search?q=a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "a"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Инъекция ' OR 1=1 -- (200, не все строки)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 200', () => pm.response.to.have.status(200));",
+                  "pm.test('не все 5000 строк', () => pm.expect(pm.response.json().length).to.be.below(5000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/search?q=%27%20OR%201%3D1%20--",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "%27%20OR%201%3D1%20--"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Инъекция ' OR ''=' (200, пусто)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 200', () => pm.response.to.have.status(200));",
+                  "pm.test('пустой список', () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/search?q=%27%20OR%20%27%27%3D%27",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "%27%20OR%20%27%27%3D%27"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Страница клиента без ключа (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('код 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
