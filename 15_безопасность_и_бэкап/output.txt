@@ -1,0 +1,144 @@
+Занятие 15. Прогон 22.10.2026, PostgreSQL 17.11 в docker. Пароли ролей — случайные, из переменных окружения.
+
+===== Часть 1. Роли и права =====
+$ psql -U postgres -d seattle_library -v reader_pw="$APP_READER_PW" -v writer_pw="$APP_WRITER_PW" -f 15_roles.sql
+psql:/tmp/15_roles.sql:8: NOTICE:  role "app_reader" does not exist, skipping
+DROP ROLE
+DROP ROLE
+psql:/tmp/15_roles.sql:9: NOTICE:  role "app_writer" does not exist, skipping
+CREATE ROLE
+CREATE ROLE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+  grantee   |   table_name   |       privileges       
+------------+----------------+------------------------
+ app_reader | checkout_facts | SELECT
+ app_reader | subjects       | SELECT
+ app_reader | title_subjects | SELECT
+ app_reader | titles         | SELECT
+ app_writer | checkout_facts | INSERT, SELECT, UPDATE
+ app_writer | subjects       | SELECT
+ app_writer | title_subjects | SELECT
+ app_writer | titles         | INSERT, SELECT
+(8 rows)
+
+$ python 15_roles_check.py   # подключение по паролю (scram-sha-256) через localhost:55475
+
+== app_reader ==
+SELECT                 | OK
+INSERT checkout_facts  | ERROR:  permission denied for table checkout_facts
+INSERT titles          | ERROR:  permission denied for table titles
+UPDATE checkout_facts  | ERROR:  permission denied for table checkout_facts
+DELETE                 | ERROR:  permission denied for table checkout_facts
+DROP TABLE             | ERROR:  must be owner of table title_subjects
+CREATE TABLE           | ERROR:  permission denied for schema public
+
+== app_writer ==
+SELECT                 | OK
+INSERT checkout_facts  | OK
+INSERT titles          | OK
+UPDATE checkout_facts  | OK
+DELETE                 | ERROR:  permission denied for table checkout_facts
+DROP TABLE             | ERROR:  must be owner of table title_subjects
+CREATE TABLE           | ERROR:  permission denied for schema public
+
+--- зачем право на последовательность: временно отзываем USAGE и пробуем INSERT INTO titles под app_writer ---
+REVOKE
+psycopg2.errors.InsufficientPrivilege: permission denied for sequence titles_title_id_seq
+GRANT
+
+===== Часть 2. SQL-инъекция (vuln_api.py; учебная база в локальном docker) =====
+$ python vuln_api.py
+
+== Подключение: владелец базы (postgres) ==
+-- find_titles_vulnerable
+   обычный запрос                         'spinning silver'
+      -> 1 строк: Spinning silver / Naomi Novik.
+   (а) все строки                         "x' OR 1=1 --"
+      -> 5000 строк: Avengers. 4, Infinity / writer, Jonathan, Siberian Treasure: Marina Alexander Adve, First light : a novel / Charles Baxter., Microservices in action / Morgan Bruce, , The Game of Kings: The Lymond Chronicles, Mystery Ranch: The Boxcar Children Serie ...
+   (б) список ролей сервера через UNION   "x' UNION SELECT oid::int, rolname::text FROM pg_roles --"
+      -> 19 строк: pg_write_server_files, pg_read_all_stats, pg_database_owner, pg_signal_backend, pg_read_all_data, pg_maintain ...
+-- find_titles_safe
+   обычный запрос                         'spinning silver'
+      -> 1 строк: Spinning silver / Naomi Novik.
+   (а) все строки                         "x' OR 1=1 --"
+      -> 0 строк: 
+   (б) список ролей сервера через UNION   "x' UNION SELECT oid::int, rolname::text FROM pg_roles --"
+      -> 0 строк: 
+
+== Подключение: роль app_reader ==
+-- find_titles_vulnerable
+   обычный запрос                         'spinning silver'
+      -> 1 строк: Spinning silver / Naomi Novik.
+   (а) все строки                         "x' OR 1=1 --"
+      -> 5000 строк: Avengers. 4, Infinity / writer, Jonathan, Siberian Treasure: Marina Alexander Adve, First light : a novel / Charles Baxter., Microservices in action / Morgan Bruce, , The Game of Kings: The Lymond Chronicles, Mystery Ranch: The Boxcar Children Serie ...
+   (б) список ролей сервера через UNION   "x' UNION SELECT oid::int, rolname::text FROM pg_roles --"
+      -> 19 строк: pg_write_server_files, pg_read_all_stats, pg_database_owner, pg_signal_backend, pg_read_all_data, pg_maintain ...
+-- find_titles_safe
+   обычный запрос                         'spinning silver'
+      -> 1 строк: Spinning silver / Naomi Novik.
+   (а) все строки                         "x' OR 1=1 --"
+      -> 0 строк: 
+   (б) список ролей сервера через UNION   "x' UNION SELECT oid::int, rolname::text FROM pg_roles --"
+      -> 0 строк: 
+
+== DROP TABLE через инъекцию под app_reader: "x'; DROP TABLE title_subjects; --"
+   find_titles_vulnerable -> ERROR:  must be owner of table title_subjects
+   find_titles_safe       -> 0 строк: 
+   title_subjects на месте: 17988 строк
+
+===== Часть 3. Резервная копия =====
+--- 1. число строк до копии ---
+$ psql -U postgres -d seattle_library -c SELECT 'titles' AS tbl, COUNT(*) FROM titles UNION ALL SELECT 'checkout_facts', COUNT(*) FROM checkout_facts UNION ALL SELECT 'subjects', COUNT(*) FROM subjects UNION ALL SELECT 'title_subjects', COUNT(*) FROM title_subjects;
+      tbl       | count 
+----------------+-------
+ titles         |  5000
+ checkout_facts |  5000
+ subjects       |  7298
+ title_subjects | 17988
+(4 rows)
+
+--- 2. копия в формате custom (-Fc) ---
+$ pg_dump -U postgres -Fc -f /tmp/seattle_library.dump seattle_library
+$ ls -l /tmp/seattle_library.dump
+-rw-r--r-- 1 root root 1098555 Oct 22 05:23 /tmp/seattle_library.dump
+--- 3. «авария»: удалили таблицу ---
+$ psql -U postgres -d seattle_library -c DROP TABLE title_subjects;
+DROP TABLE
+$ psql -U postgres -d seattle_library -c SELECT COUNT(*) FROM title_subjects;
+ERROR:  relation "title_subjects" does not exist
+LINE 1: SELECT COUNT(*) FROM title_subjects;
+                             ^
+--- 4. восстановление в новую базу ---
+$ createdb -U postgres seattle_restore
+$ pg_restore -U postgres -d seattle_restore /tmp/seattle_library.dump
+(pg_restore завершился без ошибок)
+--- 5. число строк в восстановленной базе ---
+$ psql -U postgres -d seattle_restore -c SELECT 'titles' AS tbl, COUNT(*) FROM titles UNION ALL SELECT 'checkout_facts', COUNT(*) FROM checkout_facts UNION ALL SELECT 'subjects', COUNT(*) FROM subjects UNION ALL SELECT 'title_subjects', COUNT(*) FROM title_subjects;
+      tbl       | count 
+----------------+-------
+ titles         |  5000
+ checkout_facts |  5000
+ subjects       |  7298
+ title_subjects | 17988
+(4 rows)
+
+--- права ролей тоже восстановились (GRANT входят в дамп) ---
+$ psql -U postgres -d seattle_restore -c SELECT grantee, table_name, string_agg(privilege_type, ', ' ORDER BY privilege_type) AS privileges FROM information_schema.role_table_grants WHERE grantee LIKE 'app_%' GROUP BY 1, 2 ORDER BY 1, 2;
+  grantee   |   table_name   |       privileges       
+------------+----------------+------------------------
+ app_reader | checkout_facts | SELECT
+ app_reader | subjects       | SELECT
+ app_reader | title_subjects | SELECT
+ app_reader | titles         | SELECT
+ app_writer | checkout_facts | INSERT, SELECT, UPDATE
+ app_writer | subjects       | SELECT
+ app_writer | title_subjects | SELECT
+ app_writer | titles         | INSERT, SELECT
+(8 rows)
+
