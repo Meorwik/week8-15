@@ -1,0 +1,39 @@
+# Прогон 22.10.2026: PostgreSQL 17 + MongoDB v8.3.13 в docker, pymongo 4.19.0
+# Второй запуск подряд (проверка, что delete_many не даёт дублей): названий в Mongo = 5000
+$ python 11_mongo.py
+
+=== 1. PostgreSQL -> документы: один запрос с JOIN, группировка в Python ===
+строк в результате JOIN: 18024
+                 SQL   Mongo
+названия        5000    5000
+выдачи          5000    5000
+темы-связи     17988   17988
+пример документа (с несколькими темами):
+{'title_id': 1, 'title': 'Avengers. 4, Infinity / writer, Jonathan Hickman ; penciler, Leinil Francis Yu ; inkers, Gerry Alanguilan (#18-22) & Leinil Francis Yu (#23).', 'creator': 'Hickman, Jonathan', 'publisher': 'Marvel Worldwide,', 'subjects': ['Avengers Fictitious characters Comic books strips etc', 'Comic books strips etc', 'Graphic novels', 'Science fiction comic books strips etc', 'Superhero comic books strips etc', 'Superheroes Comic books strips etc'], 'checkouts': [{'year': 2019, 'month': 1, 'material_type': 'BOOK', 'count': 1}]}
+
+=== 2. CRUD ===
+find {'subjects': 'Fantasy', 'checkouts.year': 2019}: 194 документов
+тот же запрос в SQL (3 JOIN): 194
+   {'title': 'A Book of Spirits and Thieves: A Book of Spirits and Thieves Series, Book 1', 'checkouts': [{'year': 2019, 'month': 1, 'material_type': 'EBOOK', 'count': 2}]}
+   {'title': 'A Case of Spirits', 'checkouts': [{'year': 2019, 'month': 1, 'material_type': 'EBOOK', 'count': 2}]}
+   {'title': 'A City Dreaming (Unabridged)', 'checkouts': [{'year': 2019, 'month': 1, 'material_type': 'AUDIOBOOK', 'count': 1}]}
+insert_one: 6ad99ca90b5b27a09290b05a
+$push: matched=1 modified=1
+$set:  matched=1 modified=1
+документ после $push и $set: {'title_id': None, 'title': 'Practice 11 test book', 'creator': 'Student', 'publisher': 'Updated Press', 'subjects': ['Databases', 'Fantasy'], 'checkouts': [{'year': 2020, 'month': 1, 'material_type': 'BOOK', 'count': 3}, {'year': 2020, 'month': 2, 'material_type': 'EBOOK', 'count': 5}]}
+delete_one: deleted=1; документов снова 5000
+
+=== 3. Агрегация: топ-5 названий за 2019 ($unwind -> $match -> $group -> $sort -> $limit) ===
+#  title_id   SQL  Mongo  title
+1      4892   848    848  You Are a Badass: How to Stop Doubting Your Greatness and Start Living
+2      3374   458    458  Less : a novel / Andrew Sean Greer.
+3      2725   388    388  Spinning silver / Naomi Novik.
+4      3582   361    361  AppleMagazine
+5       156   199    199  China Rich Girlfriend: Crazy Rich Asians Series, Book 2
+совпадает: True
+
+=== 4. Индексы по title и subjects ===
+  _id_: [('_id', 1)]
+  title_1: [('title', 1)]
+  subjects_1: [('subjects', 1)]
+план find({subjects: 'Fantasy'}): FETCH -> IXSCAN(subjects_1)
